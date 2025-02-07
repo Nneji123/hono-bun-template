@@ -1,0 +1,17 @@
+node_modules
+.env
+cert.pem
+key.pem
+mailpit.db
+mailpit.db-shm
+mailpit.db-wal
+example.ts
+logs/
+.husky/
+welcome.pdf
+test.js
+uploads/
+test.html
+test.py
+fcm_messaging/
+test.ts
