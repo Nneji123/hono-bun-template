@@ -31,6 +31,6 @@
     "@types/bun": "latest",
     "@types/node": "^22.13.1",
     "@types/nodemailer": "^6.4.17",
-    "prettier": "^3.4.2"
+    "@biomejs/biome": "1.9.4"
   }
 }
