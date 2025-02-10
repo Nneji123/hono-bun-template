@@ -1,8 +1,9 @@
 {
   "name": "hono-backend",
   "scripts": {
-    "dev": "bun run --hot src/index.ts",
-    "format": "prettier ./src"
+    "dev": "NODE_ENV=development bun run --hot src/index.ts",
+    "start": "bun run src/index.ts",
+    "format": "bunx biome format --write"
   },
   "dependencies": {
     "@logtail/node": "^0.5.2",

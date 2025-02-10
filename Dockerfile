@@ -1,4 +1,4 @@
-FROM oven/bun:latest
+FROM oven/bun:1.2.2-alpine
 
 WORKDIR /app
 
@@ -10,4 +10,4 @@ COPY . .
 
 EXPOSE 5000
 
-CMD ["bun", "run", "src/index.ts"]
+CMD ["bun", "start"]
