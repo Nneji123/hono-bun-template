@@ -2,12 +2,19 @@ import axios from 'axios';
 import Stripe from 'stripe';
 
 // Types and interfaces
-type PaymentServiceType = 'korapay' | 'paystack' | 'stripe';
+type PaymentServiceType = 'korapay' | 'paystack' | 'stripe' | 'mono';
 
 interface PaymentOptions {
   customerName?: string;
   successUrl?: string;
   cancelUrl?: string;
+  description?: string;
+  phone?: string;
+  address?: string;
+  identity?: {
+    type?: string;
+    number?: string;
+  };
   [key: string]: any;
 }
 
@@ -45,9 +52,10 @@ class KoraPayService implements PaymentInterface {
   private headers: Record<string, string>;
 
   constructor() {
-    this.apiKey = process.env.NODE_ENV !== 'production'
-      ? process.env.DEV_KORAPAY_SECRET_KEY!
-      : process.env.KORAPAY_SECRET_KEY!;
+    this.apiKey =
+      Bun.env.NODE_ENV !== 'production'
+        ? Bun.env.DEV_KORAPAY_SECRET_KEY!
+        : Bun.env.KORAPAY_SECRET_KEY!;
     this.baseUrl = 'https://api.korapay.com/merchant/api/v1';
     this.headers = {
       Authorization: `Bearer ${this.apiKey}`,
@@ -76,7 +84,9 @@ class KoraPayService implements PaymentInterface {
     };
 
     try {
-      const response = await axios.post(url, payload, { headers: this.headers });
+      const response = await axios.post(url, payload, {
+        headers: this.headers
+      });
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -107,9 +117,10 @@ class PaystackService implements PaymentInterface {
   private headers: Record<string, string>;
 
   constructor() {
-    this.apiKey = process.env.NODE_ENV !== 'production'
-      ? process.env.DEV_PAYSTACK_SECRET_KEY!
-      : process.env.PAYSTACK_SECRET_KEY!;
+    this.apiKey =
+      Bun.env.NODE_ENV !== 'production'
+        ? Bun.env.DEV_PAYSTACK_SECRET_KEY!
+        : Bun.env.PAYSTACK_SECRET_KEY!;
     this.baseUrl = 'https://api.paystack.co';
     this.headers = {
       Authorization: `Bearer ${this.apiKey}`,
@@ -135,7 +146,9 @@ class PaystackService implements PaymentInterface {
     };
 
     try {
-      const response = await axios.post(url, payload, { headers: this.headers });
+      const response = await axios.post(url, payload, {
+        headers: this.headers
+      });
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -164,11 +177,11 @@ class StripeService implements PaymentInterface {
   private stripe: Stripe;
 
   constructor() {
-    const apiKey = process.env.NODE_ENV !== 'production'
-      ? process.env.DEV_STRIPE_SECRET_KEY!
-      : process.env.STRIPE_SECRET_KEY!;
-    this.stripe = new Stripe(apiKey, {
-    });
+    const apiKey =
+      Bun.env.NODE_ENV !== 'production'
+        ? Bun.env.DEV_STRIPE_SECRET_KEY!
+        : Bun.env.STRIPE_SECRET_KEY!;
+    this.stripe = new Stripe(apiKey, {});
   }
 
   async initiatePayment(
@@ -196,8 +209,8 @@ class StripeService implements PaymentInterface {
         mode: 'payment',
         customer_email: email,
         metadata,
-        success_url: options.successUrl || process.env.PURCHASE_SUCCESS_URL!,
-        cancel_url: options.cancelUrl || process.env.PURCHASE_CANCEL_URL!
+        success_url: options.successUrl || Bun.env.PURCHASE_SUCCESS_URL!,
+        cancel_url: options.cancelUrl || Bun.env.PURCHASE_CANCEL_URL!
       });
       return session;
     } catch (error) {
@@ -221,6 +234,93 @@ class StripeService implements PaymentInterface {
   }
 }
 
+class MonoService implements PaymentInterface {
+  private apiKey: string;
+  private baseUrl: string;
+  private headers: Record<string, string>;
+
+  constructor() {
+    this.apiKey =
+      Bun.env.NODE_ENV !== 'production'
+        ? Bun.env.DEV_MONO_SECRET_KEY!
+        : Bun.env.MONO_SECRET_KEY!;
+    this.baseUrl = 'https://api.withmono.com/v2';
+    this.headers = {
+      accept: 'application/json',
+      'content-type': 'application/json'
+    };
+  }
+
+  async initiatePayment(
+    amount: number,
+    currency: string,
+    email: string,
+    reference: string,
+    metadata: PaymentMetadata,
+    options: PaymentOptions = {}
+  ): Promise<PaymentResponse> {
+    const url = `${this.baseUrl}/payments/initiate`;
+    const payload = {
+      amount: amount * 100, // Convert to kobo
+      type: 'onetime-debit',
+      method: 'account',
+      description: options.description || 'Payment',
+      reference,
+      redirect_url: options.successUrl || Bun.env.PURCHASE_SUCCESS_URL!,
+      customer: {
+        email,
+        name: options.customerName || 'Anonymous',
+        phone: options.phone || '',
+        address: options.address || '',
+        identity: options.identity || {}
+      },
+      meta: metadata
+    };
+
+    try {
+      const response = await axios.post(url, payload, {
+        headers: {
+          ...this.headers,
+          Authorization: `Bearer ${this.apiKey}`
+        }
+      });
+
+      // Transform the response to match the expected format
+      return {
+        status: response.data.status,
+        message: response.data.message,
+        data: {
+          ...response.data.data,
+          checkout_url: response.data.data.mono_url
+        }
+      };
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        throw new Error(`Mono API error: ${error.message}`);
+      }
+      throw error;
+    }
+  }
+
+  async verifyPayment(reference: string): Promise<PaymentResponse> {
+    const url = `${this.baseUrl}/payments/${reference}/verify`;
+    try {
+      const response = await axios.get(url, {
+        headers: {
+          ...this.headers,
+          Authorization: `Bearer ${this.apiKey}`
+        }
+      });
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        throw new Error(`Mono verification error: ${error.message}`);
+      }
+      throw error;
+    }
+  }
+}
+
 // Main Payment Service
 class PaymentService {
   private service: PaymentInterface;
@@ -235,6 +335,9 @@ class PaymentService {
         break;
       case 'stripe':
         this.service = new StripeService();
+        break;
+      case 'mono':
+        this.service = new MonoService();
         break;
       default:
         throw new Error(`Invalid payment service specified: ${service}`);
@@ -264,10 +367,10 @@ class PaymentService {
   }
 }
 
-export { 
+export {
   PaymentService,
   PaymentServiceType,
   PaymentOptions,
   PaymentMetadata,
-  PaymentResponse 
+  PaymentResponse
 };

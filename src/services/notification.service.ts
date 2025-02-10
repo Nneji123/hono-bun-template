@@ -1,4 +1,4 @@
-import admin  from "firebase-admin";
+import admin from 'firebase-admin';
 
 // Define interfaces
 interface ServiceAccount {
@@ -58,7 +58,7 @@ class WebPushNotification implements DeviceInterface {
     data: NotificationData = {}
   ): Promise<void> {
     if (!data.summary) data.summary = body;
-    
+
     const message: admin.messaging.Message = {
       webpush: {
         notification: {
@@ -134,7 +134,7 @@ class IOSPushNotification implements DeviceInterface {
           }
         },
         fcmOptions: {
-            imageUrl: Bun.env.LOGO_ICON_PATH
+          imageUrl: Bun.env.LOGO_ICON_PATH
         }
       },
       data,
@@ -180,7 +180,12 @@ class PushNotificationService {
     registrationToken: string,
     data: NotificationData = {}
   ): Promise<void> {
-    await this.device.sendPushNotification(title, body, registrationToken, data);
+    await this.device.sendPushNotification(
+      title,
+      body,
+      registrationToken,
+      data
+    );
   }
 }
 

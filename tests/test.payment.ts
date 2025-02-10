@@ -1,4 +1,4 @@
-import { PaymentService, PaymentServiceType } from '../src/services/payment';
+import { PaymentService, PaymentServiceType } from '../src/services/payment.service';
 
 const processPayment = async () => {
   const paymentGateway: PaymentServiceType = 'paystack'; // Change to 'korapay' or 'stripe' as needed

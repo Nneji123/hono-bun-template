@@ -3,6 +3,7 @@ import twilio from 'twilio';
 
 // Environment variables
 const TERMII_API_KEY = Bun.env.TERMII_API_KEY!;
+const TERMII_SENDER_ID = Bun.env.TERMII_SENDER_ID!;
 const TWILIO_ACCOUNT_SID = Bun.env.TWILIO_ACCOUNT_SID!;
 const TWILIO_AUTH_TOKEN = Bun.env.TWILIO_AUTH_TOKEN!;
 const TWILIO_PHONE_NUMBER = Bun.env.TWILIO_PHONE_NUMBER!;
@@ -61,10 +62,10 @@ class TermiiService implements SMSNotificationInterface {
   ): Promise<TermiiResponse> {
     const formattedPhone = formatPhoneNumber(phoneNumber, 'termii');
     const url = 'https://v3.api.termii.com/api/sms/send';
-    
+
     const payload = {
       to: formattedPhone,
-      from: 'Hono',
+      from: TERMII_SENDER_ID,
       sms: message,
       type: 'plain',
       channel: 'generic',
@@ -73,6 +74,7 @@ class TermiiService implements SMSNotificationInterface {
 
     try {
       const response = await axios.post<TermiiResponse>(url, payload);
+      console.log(response);
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {

@@ -1,133 +1,308 @@
-import { Logtail } from "@logtail/node";
-import { Context } from 'hono';
-import { EmailNotificationService } from "../services/email";
+import { Context, Next } from 'hono';
+import { pinoLogger } from 'hono-pino';
+import pino from 'pino';
+import dayjs from 'dayjs';
+import { EmailNotificationService } from '../services/email.service';
+import * as HttpStatusCodes from 'stoker/http-status-codes';
 
-if (!Bun.env.LOGTAIL_SOURCE_TOKEN) {
-    console.warn(
-        "LOGTAIL_SOURCE_TOKEN is not set.  Logging to Logtail will be skipped. " +
-        "Set this environment variable to your Logtail source token."
-    );
+// Types remain the same
+interface RequestData {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body?: unknown;
+  query?: Record<string, string>;
 }
 
-const logtail = Bun.env.LOGTAIL_SOURCE_TOKEN
-    ? new Logtail(Bun.env.LOGTAIL_SOURCE_TOKEN)
-    : null;
+interface ResponseData {
+  statusCode: number;
+  headers: Record<string, string>;
+  body?: unknown;
+  responseTime: number;
+}
 
-export const logtailLogger = (message: string, ...rest: (string | Context)[]) => {
-    console.log(message, ...rest.filter(item => typeof item === 'string'));
+const SENSITIVE_FIELDS = [
+  'password',
+  'token',
+  'authorization',
+  'apiKey',
+  'api_key',
+  'creditCard',
+  'credit_card',
+  'cardNumber',
+  'card_number',
+  'ssn',
+  'accessToken',
+  'refreshToken',
+  'phoneNumber',
+  'email',
+  'address'
+];
 
-    if (!logtail) {
-        return;
-    }
+// Create default logger
+const createDefaultLogger = () => {
+  const isProduction = process.env.NODE_ENV === 'production';
 
-    const context = rest.find(item => typeof item === 'object' && 'req' in item && 'res' in item) as Context | undefined;
-
-    if (!context) {
-        logtail.log(message).catch(handleLogtailError);
-        return;
-    }
-
-    const nodeEnv = Bun.env.NODE_ENV || 'development';
-
-    // Corrected helper function to convert Headers to a plain object
-    const headersToObject = (headers: Headers): Record<string, string> => {
-      const obj: Record<string, string> = {};
-      for (const [key, value] of (headers as any).entries()) { // Type assertion
-          obj[key] = value;
+  const transport = isProduction
+    ? {
+        target: '@logtail/pino',
+        options: {
+          sourceToken: process.env.LOGTAIL_SOURCE_TOKEN,
+          endpoint: 'https://in.logs.betterstack.com'
+        }
       }
-      return obj;
-  };
+    : {
+        target: 'pino-pretty',
+        options: {
+          colorize: true,
+          translateTime: 'SYS:standard',
+          ignore: 'pid,hostname'
+        }
+      };
 
-
-    const logEntry = {
-        message: message,
-        node_env: nodeEnv,
-        request: {
-            body: context.req.parseBody || {},
-            headers: headersToObject(context.req.raw.headers), // Use helper function
-            ip: (context.req as any).ip,  // Type assertion for 'ip'
-            method: context.req.method,
-            params: context.req.param() || {},
-            query: context.req.query() || {},
-            url: context.req.url,
-            userAgent: context.req.header('user-agent'),
-        },
-        response: {
-            body: context.res.body,  // Note: Might not be available after response
-            headers: headersToObject(context.res.headers), // Use helper function
-            responseTime: context.get('responseTime') ? `${context.get('responseTime')}ms` : undefined,
-            statusCode: context.res.status,
-        },
-        timestamp: new Date().toISOString(),
-    };
-
-    logtail.log(message, "info", logEntry).catch(handleLogtailError);
+  return pino({
+    level: isProduction ? 'info' : 'debug',
+    transport
+  });
 };
 
-function handleLogtailError(error: any) {
-    console.error("Error sending log to Logtail:", error);
-}
+// Create a singleton instance of the default logger
+const defaultLogger = createDefaultLogger();
 
-export const logtailFlush = async () => {
-    if (logtail) {
-        await logtail.flush();
+// Utility functions (sanitizeData, formatStackTrace remain the same)
+const sanitizeData = (data: unknown): unknown => {
+  if (!data) return data;
+  if (typeof data !== 'object') return data;
+  if (Array.isArray(data)) return data.map(sanitizeData);
+
+  const sanitized: Record<string, unknown> = {};
+  Object.entries(data as Record<string, unknown>).forEach(([key, value]) => {
+    const lowerKey = key.toLowerCase();
+    if (
+      SENSITIVE_FIELDS.some((field) => lowerKey.includes(field.toLowerCase()))
+    ) {
+      sanitized[key] = '***';
+    } else if (typeof value === 'object' && value !== null) {
+      sanitized[key] = sanitizeData(value);
+    } else {
+      sanitized[key] = value;
     }
+  });
+  return sanitized;
 };
 
-// --- Error Handling with Email ---
-export const handleErrorWithEmail = async (err: Error, c: Context) => {
-    logtailLogger(`Error: ${err.message}`, c); // Log the error
+const formatStackTrace = (stack?: string): string => {
+  if (!stack) return 'No stack trace available';
 
-    const formatStackTrace = (stack: string | undefined) => {
-        if (!stack) return 'No stack trace available.';
-        return stack.split('\n').map(line => line.trim()).join('\n');
+  const lines = stack.split('\n');
+  const formattedLines = lines.map((line) => {
+    const match = line.match(/at\s+(.+?)\s+\((.+?):(\d+):(\d+)\)/);
+    if (match) {
+      const [_, functionName, filePath, lineNumber, columnNumber] = match;
+      return {
+        function: functionName,
+        file: filePath.split('/').pop(),
+        path: filePath,
+        line: lineNumber,
+        column: columnNumber
+      };
+    }
+    return line;
+  });
+
+  let formatted = `${formattedLines[0]}\n`;
+  formattedLines.slice(1).forEach((line) => {
+    if (typeof line === 'object') {
+      formatted += `→ ${line.function}\n`;
+      formatted += `  File: ${line.file}\n`;
+      formatted += `  Line: ${line.line}\n`;
+      formatted += `  Path: ${line.path}\n\n`;
+    } else {
+      formatted += `${line}\n`;
+    }
+  });
+
+  return formatted;
+};
+
+const getRequestData = (c: Context): RequestData => {
+  return {
+    method: c.req.method,
+    url: c.req.url,
+    headers: sanitizeData(c.req.header()) as Record<string, string>,
+    query: sanitizeData(
+      Object.fromEntries(new URL(c.req.url).searchParams)
+    ) as Record<string, string>,
+    body: sanitizeData(c.req.parseBody() as any)
+  };
+};
+
+const getResponseData = async (
+  c: Context,
+  startTime: number
+): Promise<ResponseData> => {
+  const responseTime = Date.now() - startTime;
+  let responseBody;
+
+  try {
+    const contentType = c.res.headers.get('content-type');
+    if (contentType?.includes('application/json')) {
+      responseBody = await c.res.clone().json();
+    } else if (contentType?.includes('text')) {
+      responseBody = await c.res.clone().text();
+    }
+  } catch (error) {
+    responseBody = '[Unparseable Response]';
+  }
+
+  return {
+    statusCode: c.res.status,
+    headers: sanitizeData(Object.fromEntries(c.res.headers)) as Record<
+      string,
+      string
+    >,
+    body: sanitizeData(responseBody),
+    responseTime
+  };
+};
+
+// Logger middleware
+export const loggerMiddleware = () => {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  const transport = isProduction
+    ? {
+        target: '@logtail/pino',
+        options: {
+          sourceToken: process.env.LOGTAIL_SOURCE_TOKEN,
+          endpoint: 'https://in.logs.betterstack.com'
+        }
+      }
+    : {
+        target: 'pino-pretty',
+        options: {
+          colorize: true,
+          translateTime: 'SYS:standard',
+          ignore: 'pid,hostname'
+        }
+      };
+
+  // Initialize hono-pino middleware
+  const middleware = pinoLogger({
+    pino: {
+      level: isProduction ? 'info' : 'debug',
+      transport
+    }
+  });
+
+  return async (c: Context, next: Next) => {
+    const startTime = Date.now();
+
+    // Initialize logger if not present
+    if (!c.var.logger) {
+      c.set('logger', defaultLogger);
+    }
+
+    // Add custom properties
+    const requestData = getRequestData(c);
+    const contextData = {
+      environment: process.env.NODE_ENV,
+      correlationId: c.req.header('x-correlation-id'),
+      userAgent: c.req.header('user-agent'),
+      request: requestData
     };
-    const formattedStack = formatStackTrace(err.stack);
-    const timestamp = new Date().toISOString();
+
+    // c.var.logger = c.var.logger.child(contextData);
 
     try {
-        const emailService = new EmailNotificationService();
-          // Corrected helper function (same as above)
-          const headersToObject = (headers: Headers): Record<string, string> => {
-            const obj: Record<string, string> = {};
-            for (const [key, value] of (headers as any).entries()) { // Type assertion
-                obj[key] = value;
-            }
-            return obj;
-        };
+      await middleware(c, next);
 
-        const requestDetails = {
-            method: c.req.method,
-            url: c.req.url,
-            headers: headersToObject(c.req.raw.headers), // Use the same helper
-            body: c.req.parseBody || {},
-            query: c.req.query()
-        };
+      const responseData = await getResponseData(c, startTime);
+      const status = c.res.status;
 
-        const emailContext = {
-            errorCode: (c.res as any).response_code, // Type assertion
-            errorMessage: err.message,
-            timestamp: timestamp,
-            stackTrace: formattedStack,
-            requestMethod: requestDetails.method,
-            requestUrl: requestDetails.url,
-            requestHeaders: requestDetails.headers,
-            requestBody: requestDetails.body,
-            requestQuery: requestDetails.query
-        };
+      const logData = {
+        response: responseData,
+        responseTime: Date.now() - startTime
+      };
 
-
-        await emailService.sendEmail(
-            "Application Error",
-            "server-error",
-            Bun.env.ERROR_NOTIFICATION_EMAIL || "ifeanyinneji777@gmail.com",
-            emailContext,
-            []
-        );
-        console.log("Error notification email sent.");
-
-    } catch (emailError) {
-        console.error("Error sending error notification email:", emailError);
+      if (status >= 500) {
+        c.var.logger.error(logData, 'Server error response');
+      } else if (status >= 400) {
+        c.var.logger.warn(logData, 'Client error response');
+      } else {
+        c.var.logger.info(logData, 'Successful response');
+      }
+    } catch (error) {
+      const responseData = await getResponseData(c, startTime);
+      c.var.logger.error(
+        {
+          response: responseData,
+          error,
+          responseTime: Date.now() - startTime
+        },
+        'Request failed'
+      );
+      throw error;
     }
-    return c.text('Internal Server Error', 500);
+  };
+};
+
+// Error handler
+export const errorHandler = () => {
+  const emailService = new EmailNotificationService();
+
+  return async (err: Error, c: Context) => {
+    // Ensure we have a logger
+    const logger = c.var.logger || defaultLogger;
+
+    try {
+      logger.error({
+        err,
+        request: getRequestData(c),
+        message: 'Unhandled server error'
+      });
+
+      const context = {
+        errorCode: c.res.status || 500,
+        errorMessage: err.message,
+        timestamp: dayjs().format('MMMM D, YYYY, h:mm:ss A'),
+        stackTrace: formatStackTrace(err.stack),
+        ...getRequestData(c)
+      };
+
+      await emailService.sendEmail(
+        'Application Error',
+        'server-error',
+        Bun.env.ERROR_NOTIFICATION_EMAIL || 'ifeanyinneji777@gmail.com',
+        context,
+        []
+      );
+
+      return c.json(
+        {
+          status: false,
+          message:
+            process.env.NODE_ENV === 'production'
+              ? 'An internal server error occurred'
+              : err.message,
+          response_code: c.res.status || 500
+        },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      );
+    } catch (emailError) {
+      logger.error({
+        err: emailError,
+        message: 'Failed to send error notification email'
+      });
+
+      return c.json(
+        {
+          status: false,
+          message: 'An internal server error occurred',
+          response_code: 500
+        },
+        500
+      );
+    }
+  };
 };

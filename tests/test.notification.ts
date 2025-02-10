@@ -1,7 +1,7 @@
 import {
   PushNotificationService,
   DeviceType
-} from '../src/services/notification';
+} from '../src/services/notification.service';
 
 // Test function
 const testPushNotification = async () => {

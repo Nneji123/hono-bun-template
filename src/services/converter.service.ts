@@ -30,8 +30,8 @@ class CurrencyConverter {
   private ratesCacheDuration: number;
 
   constructor(config: ConverterConfig = {}) {
-    this.apiKey = config.apiKey || process.env.OPENEXCHANGE_API_KEY!;
-    
+    this.apiKey = config.apiKey || Bun.env.OPENEXCHANGE_API_KEY!;
+
     if (!this.apiKey) {
       throw new Error('OpenExchange API key is required');
     }

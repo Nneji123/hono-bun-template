@@ -1,7 +1,7 @@
 import nodemailer from 'nodemailer';
 import { promises as fs } from 'fs';
 import path from 'path';
-import renderTemplate from "../utils/renderTemplate";
+import renderTemplate from '../utils/renderTemplate';
 import { Resend } from 'resend';
 
 // @ts-ignore
@@ -39,7 +39,7 @@ abstract class EmailInterface implements EmailService {
         const content = await fs.readFile(attachment.filepath);
         return {
           filename: attachment.filename,
-          content: content,
+          content: content
         };
       })
     );
@@ -65,11 +65,11 @@ class SmtpEmailService extends EmailInterface {
         secure: Bun.env.SMTP_PORT === '465',
         auth: {
           user: Bun.env.SMTP_USER,
-          pass: Bun.env.SMTP_PASSWORD,
+          pass: Bun.env.SMTP_PASSWORD
         },
         tls: {
-          rejectUnauthorized: false,
-        },
+          rejectUnauthorized: false
+        }
       });
 
       await transporter.sendMail({
@@ -81,8 +81,8 @@ class SmtpEmailService extends EmailInterface {
         text,
         attachments: preparedAttachments?.map((att) => ({
           filename: att.filename,
-          content: att.content,
-        })),
+          content: att.content
+        }))
       });
 
       console.log(`Email sent to ${toEmail} via SMTP`);
@@ -105,7 +105,7 @@ class ZeptoMailService extends EmailInterface {
 
     this.client = new SendMailClient({
       url: 'api.zeptomail.com/',
-      token: `Zoho-enczapikey ${Bun.env.ZEPTOMAIL_API_KEY}`,
+      token: `Zoho-enczapikey ${Bun.env.ZEPTOMAIL_API_KEY}`
     });
   }
 
@@ -127,19 +127,19 @@ class ZeptoMailService extends EmailInterface {
       const payload: any = {
         from: {
           address: Bun.env.ZEPTOMAIL_EMAIL_ADDRESS,
-          name: Bun.env.ZEPTOMAIL_EMAIL_NAME,
+          name: Bun.env.ZEPTOMAIL_EMAIL_NAME
         },
         to: recipients,
         subject,
         htmlbody: html,
-        textbody: text,
+        textbody: text
       };
 
       if (preparedAttachments?.length) {
         payload.attachments = preparedAttachments.map((att) => ({
           name: att.filename,
           content: att.content.toString('base64'),
-          mime_type: this.getMimeType(att.filename),
+          mime_type: this.getMimeType(att.filename)
         }));
       }
 
@@ -164,7 +164,7 @@ class ZeptoMailService extends EmailInterface {
       '.png': 'image/png',
       '.jpg': 'image/jpeg',
       '.jpeg': 'image/jpeg',
-      '.gif': 'image/gif',
+      '.gif': 'image/gif'
     };
     return mimeTypes[ext] || 'application/octet-stream';
   }
@@ -199,13 +199,13 @@ class ResendEmailService extends EmailInterface {
         to: Array.isArray(toEmail) ? toEmail : [toEmail],
         subject,
         html,
-        text,
+        text
       };
 
       if (preparedAttachments?.length) {
         payload.attachments = preparedAttachments.map((att) => ({
           filename: att.filename,
-          content: att.content,
+          content: att.content
         }));
       }
 
@@ -266,6 +266,12 @@ export class EmailNotificationService {
     context: Record<string, any>,
     attachments?: Attachment[]
   ) {
-    return this.emailService.sendEmail(subject, templatePath, toEmail, context, attachments);
+    return this.emailService.sendEmail(
+      subject,
+      templatePath,
+      toEmail,
+      context,
+      attachments
+    );
   }
 }

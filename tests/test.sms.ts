@@ -1,4 +1,4 @@
-import { SMSNotificationService } from '../src/services/sms'; // Adjust the import path as needed
+import { SMSNotificationService } from '../src/services/sms.service'; // Adjust the import path as needed
 
 const testSMS = async () => {
   const smsService = new SMSNotificationService();

@@ -1,4 +1,4 @@
-import CurrencyConverter from '../src/services/converter';
+import CurrencyConverter from '../src/services/converter.service';
 
 const converter = new CurrencyConverter();
 

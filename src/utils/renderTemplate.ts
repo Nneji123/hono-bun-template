@@ -1,6 +1,6 @@
 import mjml2html from 'mjml';
 import Handlebars from 'handlebars';
-import errorTemplate from "../templates/emails/error.email";
+import errorTemplate from '../templates/emails/error.email';
 import { htmlToText } from 'html-to-text';
 
 // Template registry
@@ -8,7 +8,10 @@ const templateRegistry: Record<string, string> = {
   'server-error': errorTemplate
 };
 
-export default async function renderTemplate(templateName: string, context: Record<string, any>) {
+export default async function renderTemplate(
+  templateName: string,
+  context: Record<string, any>
+) {
   const getTemplateContent = (name: string): string => {
     const template = templateRegistry[name];
     if (!template) {
@@ -23,9 +26,9 @@ export default async function renderTemplate(templateName: string, context: Reco
     const rendered = template(context);
 
     // Convert MJML to HTML
-    const { html, errors } = mjml2html(rendered, {
+    const { html, errors } = await mjml2html(rendered, {
       validationLevel: 'skip',
-      keepComments: false,
+      keepComments: false
     });
     if (errors.length > 0) {
       console.error('MJML Errors:', errors);
